@@ -1,97 +1,180 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Svyas Messenger
 
-# Getting Started
+Кроссплатформенный мобильный мессенджер на React Native с поддержкой текстовых сообщений, файлов, голосовых и видеозвонков.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Технологии
 
-## Step 1: Start Metro
+- **Frontend**: React Native 0.81.4, TypeScript
+- **State Management**: Redux Toolkit
+- **Navigation**: React Navigation
+- **Backend**: Supabase (PostgreSQL, Authentication, Storage, Realtime)
+- **WebRTC**: React Native WebRTC для звонков
+- **Real-time**: Socket.io, Supabase Realtime
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Требования
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+- Node.js >= 20
+- npm или yarn
+- React Native CLI
+- Android Studio (для Android)
+- Xcode (для iOS, только macOS)
 
-```sh
-# Using npm
-npm start
+## Установка
 
-# OR using Yarn
-yarn start
+1. Клонируйте репозиторий:
+```bash
+git clone <repository-url>
+cd SvyasMessenger
 ```
 
-## Step 2: Build and run your app
+2. Установите зависимости:
+```bash
+npm install
+```
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+3. Настройте переменные окружения:
+```bash
+cp .env.example .env
+```
+
+Заполните `.env` своими данными Supabase и Firebase.
+
+4. Настройте Supabase:
+   - Создайте проект на [supabase.com](https://supabase.com)
+   - Выполните SQL-скрипт из `supabase/schema.sql` в SQL Editor
+   - Настройте Storage buckets: avatars, media, documents, recordings
+   - Скопируйте URL и Anon Key в `.env`
+
+## Запуск
 
 ### Android
-
-```sh
-# Using npm
+```bash
 npm run android
-
-# OR using Yarn
-yarn android
 ```
 
 ### iOS
-
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
+```bash
+cd ios && pod install && cd ..
 npm run ios
-
-# OR using Yarn
-yarn ios
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+### Metro Bundler
+```bash
+npm start
+```
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Скрипты
 
-## Step 3: Modify your app
+- `npm start` - запуск Metro bundler
+- `npm run android` - запуск на Android
+- `npm run ios` - запуск на iOS
+- `npm test` - запуск тестов
+- `npm run lint` - проверка кода
 
-Now that you have successfully run the app, let's make changes!
+## Структура проекта
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+```
+src/
+├── modules/           # Модули приложения
+│   ├── auth/         # Аутентификация
+│   ├── profile/      # Профиль пользователя
+│   ├── chat/         # Чаты и сообщения
+│   ├── calls/        # Звонки
+│   ├── notifications/# Уведомления
+│   └── settings/     # Настройки
+├── navigation/       # Навигация
+├── store/           # Redux store и slices
+├── services/        # Сервисы (Supabase, API)
+├── utils/           # Утилиты
+├── types/           # TypeScript типы
+├── components/      # Переиспользуемые компоненты
+└── assets/          # Изображения, шрифты
+```
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+## Основные функции
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+### Аутентификация
+- Регистрация и вход по email/пароль
+- OAuth (Google/Apple ID)
+- Восстановление пароля
+- Биометрическая аутентификация
 
-## Congratulations! :tada:
+### Чаты
+- Индивидуальные и групповые чаты (до 100 участников)
+- Текстовые сообщения, файлы, голосовые сообщения
+- Редактирование/удаление сообщений (15 мин)
+- Реакции на сообщения
+- End-to-end шифрование
 
-You've successfully run and modified your React Native App. :partying_face:
+### Звонки
+- Голосовые и видеозвонки
+- Групповые звонки (до 8 участников)
+- Запись звонков с согласием
 
-### Now what?
+### Профиль
+- Редактирование имени, аватара, статуса
+- Настройки конфиденциальности
+- Двухфакторная аутентификация
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+### Настройки
+- Выбор языка (русский/английский)
+- Тема (светлая/темная/системная)
+- Настройки уведомлений
+- Параметры безопасности
 
-# Troubleshooting
+## База данных
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+Схема базы данных находится в `supabase/schema.sql`. Основные таблицы:
 
-# Learn More
+- `users` - пользователи
+- `profiles` - профили пользователей
+- `chats` - чаты
+- `messages` - сообщения
+- `calls` - звонки
+- `notifications` - уведомления
 
-To learn more about React Native, take a look at the following resources:
+Все таблицы защищены Row Level Security (RLS).
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+## Безопасность
+
+- End-to-end шифрование сообщений (Signal Protocol)
+- HTTPS для всех API-запросов
+- JWT токены для аутентификации
+- Row Level Security в Supabase
+- Rate limiting (100 запросов/мин на пользователя)
+- Соответствие GDPR/CCPA
+
+## Тестирование
+
+```bash
+# Unit тесты
+npm test
+
+# E2E тесты (Detox)
+npm run test:e2e:ios
+npm run test:e2e:android
+```
+
+## Развертывание
+
+### Android
+1. Сгенерируйте подписанный APK/AAB
+2. Загрузите в Google Play Console
+
+### iOS
+1. Настройте signing в Xcode
+2. Создайте archive
+3. Загрузите в App Store Connect
+
+## Дополнительная документация
+
+- [CLAUDE.md](CLAUDE.md) - инструкции для Claude Code
+- [TechnicalSpecification.md](TechnicalSpecification.md) - полное техническое задание
+
+## Лицензия
+
+Proprietary - все права защищены
+
+## Контакты
+
+Для вопросов и поддержки: support@svyas.com
