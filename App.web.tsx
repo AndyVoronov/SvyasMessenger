@@ -130,6 +130,9 @@ export default function App() {
     if (!searchEmail.trim()) return;
 
     setSearching(true);
+    setError('');
+    console.log('Searching for:', searchEmail);
+
     try {
       const { data, error } = await supabase
         .from('users')
@@ -138,10 +141,18 @@ export default function App() {
         .neq('id', user.id)
         .limit(10);
 
+      console.log('Search result:', { data, error });
+
       if (error) throw error;
+
+      if (!data || data.length === 0) {
+        setError(`Пользователи с email "${searchEmail}" не найдены`);
+      }
+
       setFoundUsers(data || []);
     } catch (err: any) {
-      setError(err.message);
+      console.error('Search error:', err);
+      setError(err.message || 'Ошибка поиска');
     } finally {
       setSearching(false);
     }
@@ -280,6 +291,12 @@ export default function App() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
 
         <ScrollView style={styles.userList}>
           {foundUsers.length === 0 ? (
@@ -558,6 +575,12 @@ const styles = StyleSheet.create({
     color: '#dc3545',
     marginBottom: 12,
     textAlign: 'center',
+  },
+  errorContainer: {
+    padding: 16,
+    backgroundColor: '#ffebee',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffcdd2',
   },
   hint: {
     marginTop: 20,
