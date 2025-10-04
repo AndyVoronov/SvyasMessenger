@@ -26,7 +26,7 @@ interface UserProfile {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'auth' | 'register' | 'chatList' | 'chat' | 'newChat'>('auth');
+  const [screen, setScreen] = useState<'auth' | 'register' | 'chatList' | 'chat' | 'newChat' | 'profile'>('auth');
   const [isRegister, setIsRegister] = useState(false);
   const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
@@ -48,6 +48,12 @@ export default function App() {
   const [foundUsers, setFoundUsers] = useState<UserProfile[]>([]);
   const [searching, setSearching] = useState(false);
 
+  // Profile state
+  const [profile, setProfile] = useState<any>(null);
+  const [profileName, setProfileName] = useState('');
+  const [profileStatus, setProfileStatus] = useState('');
+  const [profileAvatar, setProfileAvatar] = useState('');
+
   useEffect(() => {
     if (user && screen === 'chatList') {
       loadChats();
@@ -61,6 +67,12 @@ export default function App() {
       return unsubscribe;
     }
   }, [selectedChat]);
+
+  useEffect(() => {
+    if (user && screen === 'profile') {
+      loadProfile();
+    }
+  }, [user, screen]);
 
   const loadChats = async () => {
     try {
@@ -145,22 +157,51 @@ export default function App() {
     console.log('Searching for:', searchEmail);
 
     try {
-      const { data, error } = await supabase
+      // Ищем по email
+      const { data: emailData, error: emailError } = await supabase
         .from('users')
         .select('id, email')
         .ilike('email', `%${searchEmail}%`)
         .neq('id', user.id)
         .limit(10);
 
-      console.log('Search result:', { data, error });
+      // Ищем по телефону в profiles
+      const { data: phoneData, error: phoneError } = await supabase
+        .from('profiles')
+        .select('id, phone')
+        .ilike('phone', `%${searchEmail}%`)
+        .neq('id', user.id)
+        .limit(10);
 
-      if (error) throw error;
+      console.log('Email search result:', { emailData, emailError });
+      console.log('Phone search result:', { phoneData, phoneError });
 
-      if (!data || data.length === 0) {
-        setError(`Пользователи с email "${searchEmail}" не найдены`);
+      // Собираем уникальные ID пользователей
+      const userIds = new Set<string>();
+
+      if (emailData) {
+        emailData.forEach(u => userIds.add(u.id));
       }
 
-      setFoundUsers(data || []);
+      if (phoneData) {
+        phoneData.forEach(p => userIds.add(p.id));
+      }
+
+      if (userIds.size === 0) {
+        setError(`Пользователи не найдены`);
+        setFoundUsers([]);
+        return;
+      }
+
+      // Получаем полную информацию о найденных пользователях
+      const { data: usersData, error: usersError } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('id', Array.from(userIds));
+
+      if (usersError) throw usersError;
+
+      setFoundUsers(usersData || []);
     } catch (err: any) {
       console.error('Search error:', err);
       setError(err.message || 'Ошибка поиска');
@@ -395,6 +436,91 @@ export default function App() {
     }
   };
 
+  const loadProfile = async () => {
+    if (!user) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setProfile(data);
+        setProfileName(data.name || '');
+        setProfileStatus(data.status || '');
+        setProfileAvatar(data.avatar || '');
+      }
+    } catch (err: any) {
+      console.error('Error loading profile:', err);
+    }
+  };
+
+  const handleProfileUpdate = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          name: profileName,
+          status: profileStatus,
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      setProfile({ ...profile, name: profileName, status: profileStatus });
+      setScreen('chatList');
+    } catch (err: any) {
+      setError(err.message || 'Ошибка обновления профиля');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setLoading(true);
+    try {
+      // Загружаем файл в Supabase Storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      // Получаем публичный URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(fileName);
+
+      // Обновляем профиль с новым avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
+      setProfileAvatar(publicUrl);
+      setProfile({ ...profile, avatar: publicUrl });
+    } catch (err: any) {
+      setError(err.message || 'Ошибка загрузки фото');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -421,7 +547,7 @@ export default function App() {
         <View style={styles.searchContainer}>
           <TextInput
             style={styles.searchInput}
-            placeholder="Введите email пользователя"
+            placeholder="Введите email или телефон"
             value={searchEmail}
             onChangeText={setSearchEmail}
             autoCapitalize="none"
@@ -535,15 +661,97 @@ export default function App() {
     );
   }
 
+  // Profile screen
+  if (screen === 'profile') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setScreen('chatList')}>
+            <Text style={styles.backButton}>← Назад</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Профиль</Text>
+          <View style={{ width: 60 }} />
+        </View>
+
+        <ScrollView style={styles.profileContainer}>
+          <View style={styles.avatarSection}>
+            {profileAvatar ? (
+              <img src={profileAvatar} alt="Avatar" style={{ width: 120, height: 120, borderRadius: 60 }} />
+            ) : (
+              <View style={styles.avatarPlaceholder}>
+                <Text style={styles.avatarPlaceholderText}>📷</Text>
+              </View>
+            )}
+
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              style={{ display: 'none' }}
+              id="avatar-upload"
+            />
+            <label htmlFor="avatar-upload" style={{ marginTop: 16 }}>
+              <View style={styles.uploadButton}>
+                <Text style={styles.uploadButtonText}>Загрузить фото</Text>
+              </View>
+            </label>
+          </View>
+
+          <View style={styles.profileFields}>
+            <Text style={styles.fieldLabel}>Имя</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ваше имя"
+              value={profileName}
+              onChangeText={setProfileName}
+            />
+
+            <Text style={styles.fieldLabel}>Статус</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ваш статус (как в ICQ)"
+              value={profileStatus}
+              onChangeText={setProfileStatus}
+              maxLength={100}
+            />
+
+            <Text style={styles.fieldLabel}>Email</Text>
+            <Text style={styles.fieldValue}>{user?.email || ''}</Text>
+
+            <Text style={styles.fieldLabel}>Телефон</Text>
+            <Text style={styles.fieldValue}>{profile?.phone || 'Не указан'}</Text>
+          </View>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleProfileUpdate}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>
+              {loading ? 'Сохранение...' : 'Сохранить'}
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
   // Chat list screen
   if (screen === 'chatList') {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Svyas Messenger</Text>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Выйти</Text>
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity onPress={() => setScreen('profile')} style={styles.profileButton}>
+              <Text style={styles.profileButtonText}>👤</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+              <Text style={styles.logoutText}>Выйти</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity
@@ -1008,5 +1216,61 @@ const styles = StyleSheet.create({
   sendButtonText: {
     color: '#fff',
     fontSize: 20,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  profileButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  profileButtonText: {
+    fontSize: 24,
+  },
+  profileContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  avatarSection: {
+    alignItems: 'center',
+    marginBottom: 32,
+  },
+  avatarPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarPlaceholderText: {
+    fontSize: 48,
+  },
+  uploadButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+  },
+  uploadButtonText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  profileFields: {
+    marginBottom: 24,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    marginTop: 16,
+  },
+  fieldValue: {
+    fontSize: 16,
+    color: '#333',
+    padding: 12,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
   },
 });
