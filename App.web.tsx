@@ -13,6 +13,7 @@ interface Chat {
 
 interface Message {
   id: string;
+  chat_id: string;
   content: string;
   sender_id: string;
   created_at: string;
@@ -25,9 +26,13 @@ interface UserProfile {
 }
 
 export default function App() {
-  const [screen, setScreen] = useState<'auth' | 'chatList' | 'chat' | 'newChat'>('auth');
+  const [screen, setScreen] = useState<'auth' | 'register' | 'chatList' | 'chat' | 'newChat'>('auth');
+  const [isRegister, setIsRegister] = useState(false);
+  const [loginMethod, setLoginMethod] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [user, setUser] = useState<any>(null);
@@ -117,7 +122,13 @@ export default function App() {
         table: 'messages',
         filter: `chat_id=eq.${chatId}`
       }, (payload) => {
-        setMessages(prev => [...prev, payload.new as Message]);
+        const newMessage = payload.new as Message;
+        // Проверяем, нет ли уже сообщения с таким ID (избегаем дубликатов)
+        setMessages(prev => {
+          const exists = prev.some(msg => msg.id === newMessage.id);
+          if (exists) return prev;
+          return [...prev, newMessage];
+        });
       })
       .subscribe();
 
@@ -204,17 +215,37 @@ export default function App() {
   const sendMessage = async () => {
     if (!messageText.trim() || !selectedChat) return;
 
+    const tempMessage: Message = {
+      id: `temp-${Date.now()}`,
+      chat_id: selectedChat.id,
+      sender_id: user.id,
+      content: messageText,
+      created_at: new Date().toISOString(),
+    };
+
+    // Оптимистичное обновление - добавляем сообщение сразу в UI
+    setMessages(prev => [...prev, tempMessage]);
+    const currentMessageText = messageText;
+    setMessageText('');
+
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .insert({
           chat_id: selectedChat.id,
           sender_id: user.id,
           type: 'text',
-          content: messageText,
-        });
+          content: currentMessageText,
+        })
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Заменяем временное сообщение на реальное с правильным ID
+      setMessages(prev =>
+        prev.map(msg => msg.id === tempMessage.id ? data : msg)
+      );
 
       // Обновляем время последнего сообщения в чате
       await supabase
@@ -222,9 +253,83 @@ export default function App() {
         .update({ updated_at: new Date().toISOString() })
         .eq('id', selectedChat.id);
 
-      setMessageText('');
     } catch (err: any) {
+      // Если ошибка - убираем временное сообщение
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+      setMessageText(currentMessageText);
       setError(err.message);
+    }
+  };
+
+  const handleRegister = async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      if (!email || !phone || !password) {
+        throw new Error('Заполните все поля');
+      }
+
+      if (password !== confirmPassword) {
+        throw new Error('Пароли не совпадают');
+      }
+
+      if (password.length < 6) {
+        throw new Error('Пароль должен быть минимум 6 символов');
+      }
+
+      // Регистрация пользователя в Supabase Auth
+      const { data, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (authError) throw authError;
+
+      if (!data.user) throw new Error('Ошибка создания пользователя');
+
+      // Создаем профиль сразу (не полагаемся на триггер)
+      console.log('Creating profile for user:', data.user.id, 'with phone:', phone);
+
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: data.user.id,
+          phone: phone,
+          name: email.split('@')[0],
+          privacy_settings: {
+            onlineVisibility: 'everyone',
+            statusVisibility: 'everyone',
+            profilePhotoVisibility: 'everyone'
+          }
+        })
+        .select();
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        // Не бросаем ошибку, т.к. пользователь уже создан
+        // Пробуем обновить если профиль уже существует
+        const { data: updateData, error: updateError } = await supabase
+          .from('profiles')
+          .update({ phone })
+          .eq('id', data.user.id)
+          .select();
+
+        if (updateError) {
+          console.error('Profile update error:', updateError);
+        } else {
+          console.log('Profile updated:', updateData);
+        }
+      } else {
+        console.log('Profile created successfully:', profileData);
+      }
+
+      setUser(data.user);
+      setScreen('chatList');
+    } catch (err: any) {
+      setError(err.message || 'Ошибка регистрации');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -233,8 +338,49 @@ export default function App() {
     setError('');
 
     try {
+      let userEmail = email;
+
+      // Если вход по телефону, найдем email по телефону
+      if (loginMethod === 'phone') {
+        if (!phone) throw new Error('Введите номер телефона');
+
+        console.log('Looking for profile with phone:', phone);
+
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('phone', phone)
+          .single();
+
+        console.log('Profile search result:', { profileData, profileError });
+
+        if (profileError || !profileData) {
+          throw new Error('Пользователь с таким телефоном не найден');
+        }
+
+        // Получаем email пользователя
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', profileData.id)
+          .single();
+
+        console.log('User search result:', { userData, userError });
+
+        if (userError || !userData) {
+          throw new Error('Ошибка получения данных пользователя');
+        }
+
+        userEmail = userData.email;
+        console.log('Found email:', userEmail);
+      } else {
+        if (!email) throw new Error('Введите email');
+      }
+
+      if (!password) throw new Error('Введите пароль');
+
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: userEmail,
         password,
       });
 
@@ -453,16 +599,50 @@ export default function App() {
     <View style={styles.container}>
       <View style={styles.authContainer}>
         <Text style={styles.title}>Svyas Messenger</Text>
-        <Text style={styles.subtitle}>Вход в систему</Text>
+        <Text style={styles.subtitle}>{isRegister ? 'Регистрация' : 'Вход в систему'}</Text>
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
+        {!isRegister && (
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity
+              style={[styles.toggleButton, loginMethod === 'email' && styles.toggleButtonActive]}
+              onPress={() => setLoginMethod('email')}
+            >
+              <Text style={[styles.toggleText, loginMethod === 'email' && styles.toggleTextActive]}>
+                Email
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleButton, loginMethod === 'phone' && styles.toggleButtonActive]}
+              onPress={() => setLoginMethod('phone')}
+            >
+              <Text style={[styles.toggleText, loginMethod === 'phone' && styles.toggleTextActive]}>
+                Телефон
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {(isRegister || loginMethod === 'email') && (
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+        )}
+
+        {(isRegister || loginMethod === 'phone') && (
+          <TextInput
+            style={styles.input}
+            placeholder="Телефон (например: +79991234567)"
+            value={phone}
+            onChangeText={setPhone}
+            autoCapitalize="none"
+            keyboardType="phone-pad"
+          />
+        )}
 
         <TextInput
           style={styles.input}
@@ -472,23 +652,47 @@ export default function App() {
           secureTextEntry
         />
 
+        {isRegister && (
+          <TextInput
+            style={styles.input}
+            placeholder="Подтвердите пароль"
+            value={confirmPassword}
+            onChangeText={setConfirmPassword}
+            secureTextEntry
+          />
+        )}
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
+          onPress={isRegister ? handleRegister : handleLogin}
           disabled={loading}
         >
           <Text style={styles.buttonText}>
-            {loading ? 'Загрузка...' : 'Войти'}
+            {loading ? 'Загрузка...' : (isRegister ? 'Зарегистрироваться' : 'Войти')}
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.hint}>
-          Тестовые аккаунты:{'\n'}
-          user1@example.com / password123{'\n'}
-          user2@example.com / password123
-        </Text>
+        <TouchableOpacity
+          style={styles.linkButton}
+          onPress={() => {
+            setIsRegister(!isRegister);
+            setError('');
+          }}
+        >
+          <Text style={styles.linkText}>
+            {isRegister ? 'Уже есть аккаунт? Войти' : 'Нет аккаунта? Зарегистрироваться'}
+          </Text>
+        </TouchableOpacity>
+
+        {!isRegister && (
+          <Text style={styles.hint}>
+            Тестовые аккаунты:{'\n'}
+            user1@example.com / password123{'\n'}
+            user2@example.com / password123
+          </Text>
+        )}
       </View>
     </View>
   );
@@ -586,6 +790,40 @@ const styles = StyleSheet.create({
     marginTop: 20,
     fontSize: 14,
     color: '#999',
+    textAlign: 'center',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    width: '100%',
+    maxWidth: 400,
+    marginBottom: 20,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    padding: 4,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  toggleButtonActive: {
+    backgroundColor: '#007AFF',
+  },
+  toggleText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  toggleTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  linkButton: {
+    marginTop: 12,
+  },
+  linkText: {
+    color: '#007AFF',
+    fontSize: 14,
     textAlign: 'center',
   },
   newChatButton: {
